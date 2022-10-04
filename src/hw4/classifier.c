@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "image.h"
 #include "matrix.h"
 
@@ -7,28 +8,119 @@
 // modifies the matrix in place
 // matrix m: Input to activation function
 // ACTIVATION a: function to run
+
+matrix ax_matrix(double a, matrix x)
+{
+
+    int i, j;
+    matrix p = make_matrix(x.rows, x.cols);
+    for(i = 0; i < x.rows; ++i){
+        for(j = 0; j < x.cols; ++j){
+            p.data[i][j] = a*x.data[i][j];
+        }
+    }
+    return p;
+}
+
+matrix msm(matrix a, matrix b)
+{
+    assert(a.cols == b.cols);
+    assert(a.rows == b.rows);
+    int i, j;
+    matrix p = make_matrix(a.rows, a.cols);
+    for(i = 0; i < p.rows; ++i){
+        for(j = 0; j < p.cols; ++j){
+            p.data[i][j] = a.data[i][j] - b.data[i][j];
+        }
+    }
+    return p;
+}
+
+matrix mpm(matrix a, matrix b)
+{
+    assert(a.cols == b.cols);
+    assert(a.rows == b.rows);
+    int i, j;
+    matrix p = make_matrix(a.rows, a.cols);
+    for(i = 0; i < p.rows; ++i){
+        for(j = 0; j < p.cols; ++j){
+            p.data[i][j] = a.data[i][j] + b.data[i][j];
+        }
+    }
+    return p;
+}
+
+
 void activate_matrix(matrix m, ACTIVATION a)
 {
     int i, j;
+//    print_matrix(m);
+//    matrix activated = m;
     for(i = 0; i < m.rows; ++i){
         double sum = 0;
         for(j = 0; j < m.cols; ++j){
             double x = m.data[i][j];
             if(a == LOGISTIC){
                 // TODO
+                double exp_x = 1 + exp (-x);
+                m.data[i][j] = 1/exp_x;
             } else if (a == RELU){
                 // TODO
+		        m.data[i][j] = x > 0 ? x : 0;
             } else if (a == LRELU){
                 // TODO
+                  m.data[i][j] = x > 0 ? x : 0.1*x;
             } else if (a == SOFTMAX){
                 // TODO
+                double exp_x = exp(x);
+                m.data[i][j] = exp_x;
             }
             sum += m.data[i][j];
         }
         if (a == SOFTMAX) {
+
             // TODO: have to normalize by sum if we are using SOFTMAX
+            for (int j = 0; j < m.cols; j++) {
+            m.data[i][j] = m.data[i][j] / sum;
+            }
         }
     }
+}
+
+matrix softmax_jacobian(matrix m) {
+ assert(m.rows == 1);
+ matrix jacob = make_matrix(m.cols, m.cols);
+ for (int j = 0; j < m.cols; j++) {
+   jacob.data[j][j] = m.data[0][j];
+   }
+ jacob = msm(jacob, matrix_mult_matrix(transpose_matrix(m),m));
+ assert(jacob.rows == m.cols);
+ assert(jacob.cols == m.cols);
+ return jacob;
+}
+
+// matrix softmax_jacobian(matrix out_row) {
+//   assert(out_row.rows == 1);
+//   matrix jacob = make_matrix(out_row.cols, out_row.cols);
+//    for (int j = 0; j < out_row.cols; j++) {
+//     for (int k = 0; k < out_row.cols; k++) {
+// 		if (j == k)
+// 			jacob.data[j][k] = out_row.data[0][j] * (1 - out_row.data[0][j]);
+// 		if (j != k)
+// 			jacob.data[j][k]  = -out_row.data[0][j] * out_row.data[0][k];
+//     }
+//   }
+//   assert(jacob.rows == out_row.cols);
+//   assert(jacob.cols == out_row.cols);
+//   return jacob;
+// }
+
+matrix get_row(int i, matrix m){
+  matrix out = make_matrix(1, m.cols);
+  for (int j = 0; j < m.cols; j++) {
+    out.data[0][j] = m.data[i][j];
+  }
+  return out;
 }
 
 // Calculates the gradient of an activation function and multiplies it into
@@ -39,14 +131,39 @@ void activate_matrix(matrix m, ACTIVATION a)
 void gradient_matrix(matrix m, ACTIVATION a, matrix d)
 {
     int i, j;
+    matrix row_grad;
+    matrix pre_d = copy_matrix(d);
     for(i = 0; i < m.rows; ++i){
+        // if (a == SOFTMAX){
+        //     matrix jacob = softmax_jacobian(get_row(i,m));
+        //     row_grad = matrix_mult_matrix(get_row(i,pre_d), jacob);
+        //     }
+//        print_matrix(jacob);
         for(j = 0; j < m.cols; ++j){
             double x = m.data[i][j];
             // TODO: multiply the correct element of d by the gradient
+            if(a == LOGISTIC){
+                // TODO
+                double pre_d = d.data[i][j];
+                d.data[i][j] = x *( 1 - x);
+                d.data[i][j] = d.data[i][j] * pre_d;
+            } else if (a == RELU){
+                // TODO
+                double pre_d = d.data[i][j];
+                d.data[i][j] = x > 0 ? 1 : 0;
+                d.data[i][j] = d.data[i][j] * pre_d;
+            } else if (a == LRELU){
+                // TODO
+                double pre_d = d.data[i][j];
+                d.data[i][j] = x > 0 ? 1 : 0.1;
+                d.data[i][j] = d.data[i][j] * pre_d;
+            } else if (a == SOFTMAX){
+                // TODO
+                // d.data[i][j] = row_grad.data[0][j];
+            }
         }
     }
 }
-
 // Forward propagate information through a layer
 // layer *l: pointer to the layer
 // matrix in: input to layer
@@ -59,8 +176,8 @@ matrix forward_layer(layer *l, matrix in)
 
     // TODO: fix this! multiply input by weights and apply activation function.
     matrix out = make_matrix(in.rows, l->w.cols);
-
-
+    out = matrix_mult_matrix(in, l->w);
+    activate_matrix(out, l->activation);
     free_matrix(l->out);// free the old output
     l->out = out;       // Save the current output for gradient calculation
     return out;
@@ -75,18 +192,19 @@ matrix backward_layer(layer *l, matrix delta)
     // 1.4.1
     // delta is dL/dy
     // TODO: modify it in place to be dL/d(xw)
+    gradient_matrix(l->out,l->activation,delta);
 
 
     // 1.4.2
     // TODO: then calculate dL/dw and save it in l->dw
     free_matrix(l->dw);
-    matrix dw = make_matrix(l->w.rows, l->w.cols); // replace this
+    matrix dw = matrix_mult_matrix(transpose_matrix(l->in),delta); // replace this
     l->dw = dw;
 
     
     // 1.4.3
     // TODO: finally, calculate dL/dx and return it.
-    matrix dx = make_matrix(l->in.rows, l->in.cols); // replace this
+    matrix dx = matrix_mult_matrix(delta,transpose_matrix(l->w)); // replace this
 
     return dx;
 }
@@ -96,17 +214,26 @@ matrix backward_layer(layer *l, matrix delta)
 // double rate: learning rate
 // double momentum: amount of momentum to use
 // double decay: value for weight decay
+
+
+
 void update_layer(layer *l, double rate, double momentum, double decay)
 {
     // TODO:
     // Calculate Δw_t = dL/dw_t - λw_t + mΔw_{t-1}
     // save it to l->v
+    matrix mv = ax_matrix(momentum , l->v);
+    matrix dmv = ax_matrix(decay , l->w);
+    l->v =mpm(msm(l->dw, dmv), mv);
 
 
     // Update l->w
+    l->w = mpm(l->w , ax_matrix(rate, l->v));
 
 
     // Remember to free any intermediate results to avoid memory leaks
+    free_matrix(mv);
+    free_matrix(dmv);
 
 }
 
@@ -246,7 +373,8 @@ void train_model(model m, data d, int batch, int iters, double rate, double mome
 //
 // 2.1.1 What are the training and test accuracy values you get? Why might we be interested in both training accuracy and testing accuracy? What do these two numbers tell us about our current model?
 // TODO
-//
+// The training accuracy is 90.34 % and test accuracy is 90.91%
+// we need aviod model from overfitting to the training dataset and lear a gernal 
 // 2.1.2 Try varying the model parameter for learning rate to different powers of 10 (i.e. 10^1, 10^0, 10^-1, 10^-2, 10^-3) and training the model. What patterns do you see and how does the choice of learning rate affect both the loss during training and the final model accuracy?
 // TODO
 //
